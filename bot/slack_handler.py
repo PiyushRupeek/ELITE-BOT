@@ -2,7 +2,7 @@ import logging
 import threading
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-from bot.agent import DevAgent, HELP_TEXT
+from bot.agent import DevAgent, HELP_TEXT, is_relevant, OUT_OF_SCOPE
 import config
 
 logging.basicConfig(level=logging.INFO)
@@ -84,6 +84,11 @@ def handle_mention(event, say, client):
         say(text=HELP_TEXT, thread_ts=thread_ts)
         return
 
+    if not is_relevant(query):
+        logger.info("Rejected out-of-scope query: %s", query[:80])
+        say(text=OUT_OF_SCOPE, thread_ts=thread_ts)
+        return
+
     client.reactions_add(channel=event["channel"], timestamp=event["ts"], name="thinking_face")
 
     try:
@@ -113,6 +118,11 @@ def handle_dm(event, say):
 
     if query.lower() in ("help", "!help"):
         say(text=HELP_TEXT)
+        return
+
+    if not is_relevant(query):
+        logger.info("Rejected out-of-scope query: %s", query[:80])
+        say(text=OUT_OF_SCOPE)
         return
 
     say(text=":thinking_face: On it...")

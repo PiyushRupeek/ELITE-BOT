@@ -24,6 +24,48 @@ from tools.grafana_tool import GrafanaTool
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Relevance filter — blocks unrelated questions before any API call
+# ---------------------------------------------------------------------------
+
+_ENGINEERING_KEYWORDS = {
+    # actions
+    "debug", "implement", "explain", "review", "refactor", "deploy", "build",
+    "write", "fix", "create", "add", "update", "change", "test", "check",
+    # code concepts
+    "code", "function", "class", "method", "module", "interface", "endpoint",
+    "api", "service", "controller", "repository", "model", "schema", "config",
+    "middleware", "handler", "hook", "util", "helper", "type", "enum",
+    # tech stack
+    "typescript", "javascript", "java", "python", "spring", "nestjs", "nest",
+    "node", "react", "sql", "database", "db", "redis", "kafka", "docker",
+    "git", "env", "yaml", "json", "rest", "graphql", "grpc",
+    # problems
+    "error", "exception", "bug", "crash", "fail", "broken", "issue",
+    "500", "404", "null", "undefined", "timeout", "memory", "leak",
+    # infra / flow
+    "log", "trace", "metric", "grafana", "loki", "k8s", "ci", "cd",
+    "pipeline", "release", "branch", "pr", "merge",
+    # rupeek-specific
+    "bazaar", "lead", "loan", "image", "rupeek", "customer",
+    # general engineering Q&A patterns
+    "how does", "how do", "what is", "where is", "which file", "show me",
+    "why is", "why does", "when does", "does it", "can you",
+}
+
+OUT_OF_SCOPE = (
+    ":no_entry: I'm an engineering assistant for the Rupeek codebase.\n"
+    "I can help with *debugging*, *explaining code*, *implementing features*, and *code reviews*.\n"
+    "Type `help` to see what I can do."
+)
+
+
+def is_relevant(query: str) -> bool:
+    """Returns True if the query is engineering-related. Runs instantly, no API call."""
+    q = query.lower()
+    return any(kw in q for kw in _ENGINEERING_KEYWORDS)
+
+
+# ---------------------------------------------------------------------------
 # Intent detection
 # ---------------------------------------------------------------------------
 
