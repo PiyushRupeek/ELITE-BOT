@@ -1,0 +1,25 @@
+# Environment — contains secrets, never commit
+.env
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# ChromaDB — large vector database, rebuild with index_codebase.py
+chroma_db/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
