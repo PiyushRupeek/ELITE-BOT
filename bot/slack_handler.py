@@ -11,10 +11,8 @@ logger = logging.getLogger(__name__)
 app = App(token=config.SLACK_BOT_TOKEN)
 agent = DevAgent()
 
-# Cached at first use — avoids an API call on every mention
 _BOT_USER_ID: str | None = None
-
-SLACK_MSG_LIMIT = 3800  # Slack's limit is 4000; stay safely under
+SLACK_MSG_LIMIT = 3800
 
 
 def _get_bot_user_id() -> str:
@@ -36,7 +34,6 @@ def _post_response(say, text: str, thread_ts: str | None = None):
         say(text=text, **kwargs)
         return
 
-    # Split on double newlines to keep markdown blocks intact
     parts = []
     current = ""
     for paragraph in text.split("\n\n"):
@@ -55,7 +52,7 @@ def _post_response(say, text: str, thread_ts: str | None = None):
 
 
 def _run_with_timeout_warning(say, query: str, thread_id: str, thread_ts: str) -> str:
-    """Run agent.run() and post a 'still thinking' message if it takes > 30s."""
+    """Run the agent and post a 'still thinking' message if it takes longer than 30s."""
     result_container = {}
 
     def warn():
@@ -100,7 +97,7 @@ def handle_mention(event, say, client):
         try:
             client.reactions_remove(channel=event["channel"], timestamp=event["ts"], name="thinking_face")
         except Exception:
-            pass  # reaction may already be gone
+            pass
 
     _post_response(say, response, thread_ts=thread_ts)
 

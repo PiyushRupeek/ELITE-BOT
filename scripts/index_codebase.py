@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Index all configured repos into ChromaDB.
+Index repos into ChromaDB.
 
 Usage:
-    python scripts/index_codebase.py           # incremental — skips unchanged files (fast)
-    python scripts/index_codebase.py --force   # full re-index of everything
+    python scripts/index_codebase.py           # incremental (skips unchanged files)
+    python scripts/index_codebase.py --force   # full re-index
 """
 import sys
 import os
@@ -23,10 +23,8 @@ def main():
         print("ERROR: REPO_PATHS is empty. Set it in your .env file.")
         sys.exit(1)
 
-    if force:
-        print("Mode: FULL re-index (--force)")
-    else:
-        print("Mode: Incremental (skips unchanged files). Use --force to re-index everything.")
+    mode = "FULL re-index (--force)" if force else "Incremental (use --force to re-index everything)"
+    print(f"Mode: {mode}")
 
     ollama = OllamaClient()
     total_indexed = 0

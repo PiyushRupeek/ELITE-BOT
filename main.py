@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Entry point for the Rupeek Dev Assistant Slack Bot.
-
-Prerequisites:
-  1. Copy .env.example to .env and fill in all values
-  2. Pull Ollama models:  ollama pull llama3.2 && ollama pull nomic-embed-text
-  3. Index the codebase:  python scripts/index_codebase.py
-  4. Start the bot:       python main.py
-"""
 import sys
 import httpx
 import config
@@ -38,12 +29,12 @@ def check_ollama():
 
 def check_grok():
     if not config.GROK_ENABLED:
-        print(f"  Grok disabled — using Ollama only (set GROK_ENABLED=true in .env to enable)")
+        print("  Groq disabled — using Ollama only (set GROK_ENABLED=true in .env to enable)")
         return
     if not config.GROK_API_KEY or config.GROK_API_KEY == "xai-your-key-here":
         print("✗ GROK_ENABLED=true but GROK_API_KEY is not set")
         sys.exit(1)
-    print(f"✓ Grok enabled  |  model: {config.GROK_MODEL}  (Ollama is fallback)")
+    print(f"✓ Groq enabled  |  model: {config.GROK_MODEL}  (Ollama is fallback)")
 
 
 if __name__ == "__main__":

@@ -1,53 +1,32 @@
-"""
-Multi-purpose dev assistant agent.
-
-Intents (auto-detected from query):
-  debug     → root cause analysis + log context
-  explain   → code explanation, flows, architecture
-  implement → write / suggest code changes
-  review    → code review with severity ratings
-  general   → general codebase Q&A
-
-Response quality improvements:
-  - Query rewriting before retrieval (better code chunk matching)
-  - Adaptive n_results based on query complexity and intent
-  - Import context injection (file header prepended to mid-file chunks)
-  - Structured response templates per intent
-  - Low-score chunk filtering
-"""
+import json
 import logging
+import os
 from rag.retriever import SearchResult
 from llm.llm_router import LLMRouter
 from rag.retriever import Retriever
 from tools.grafana_tool import GrafanaTool
+import config
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Relevance filter — blocks unrelated questions before any API call
+# Relevance filter
 # ---------------------------------------------------------------------------
 
 _ENGINEERING_KEYWORDS = {
-    # actions
     "debug", "implement", "explain", "review", "refactor", "deploy", "build",
     "write", "fix", "create", "add", "update", "change", "test", "check",
-    # code concepts
     "code", "function", "class", "method", "module", "interface", "endpoint",
     "api", "service", "controller", "repository", "model", "schema", "config",
     "middleware", "handler", "hook", "util", "helper", "type", "enum",
-    # tech stack
     "typescript", "javascript", "java", "python", "spring", "nestjs", "nest",
     "node", "react", "sql", "database", "db", "redis", "kafka", "docker",
     "git", "env", "yaml", "json", "rest", "graphql", "grpc",
-    # problems
     "error", "exception", "bug", "crash", "fail", "broken", "issue",
     "500", "404", "null", "undefined", "timeout", "memory", "leak",
-    # infra / flow
     "log", "trace", "metric", "grafana", "loki", "k8s", "ci", "cd",
     "pipeline", "release", "branch", "pr", "merge",
-    # rupeek-specific
     "bazaar", "lead", "loan", "image", "rupeek", "customer",
-    # general engineering Q&A patterns
     "how does", "how do", "what is", "where is", "which file", "show me",
     "why is", "why does", "when does", "does it", "can you",
 }
@@ -60,7 +39,6 @@ OUT_OF_SCOPE = (
 
 
 def is_relevant(query: str) -> bool:
-    """Returns True if the query is engineering-related. Runs instantly, no API call."""
     q = query.lower()
     return any(kw in q for kw in _ENGINEERING_KEYWORDS)
 
@@ -101,7 +79,7 @@ def _detect_intent(query: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Query rewriting prompt
+# Query rewriting
 # ---------------------------------------------------------------------------
 
 _REWRITE_SYSTEM = (
@@ -125,7 +103,7 @@ Search:"""
 
 
 # ---------------------------------------------------------------------------
-# Structured system prompts per intent
+# System prompts per intent
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPTS = {
@@ -229,7 +207,7 @@ If you're unsure, say so — don't hallucinate.""",
 }
 
 # ---------------------------------------------------------------------------
-# Service keyword extraction (for Grafana log fetch)
+# Service extraction (for Grafana log fetching)
 # ---------------------------------------------------------------------------
 
 _SERVICE_KEYWORDS = [
@@ -286,14 +264,21 @@ class DevAgent:
         self.ollama = LLMRouter()
         self.retriever = Retriever()
         self.grafana = GrafanaTool()
-        self._history: dict[str, list[dict]] = {}
+        self._history: dict[str, list[dict]] = self._load_history()
 
-    # ------------------------------------------------------------------
-    # Query rewriting
-    # ------------------------------------------------------------------
+    def _load_history(self) -> dict[str, list[dict]]:
+        try:
+            with open(config.HISTORY_PATH, "r") as f:
+                data = json.load(f)
+            logger.info("Loaded thread history: %d threads", len(data))
+            return data
+        except FileNotFoundError:
+            return {}
+        except Exception as e:
+            logger.warning("Could not load thread history (%s) — starting fresh", e)
+            return {}
 
     def _rewrite_query(self, query: str) -> str:
-        """Rewrite user query into a keyword-rich search query for better retrieval."""
         try:
             prompt = _REWRITE_EXAMPLES.replace("{query}", query)
             result = self.ollama.chat(
@@ -308,10 +293,6 @@ class DevAgent:
             logger.warning("Query rewrite failed: %s — using original", e)
         return query
 
-    # ------------------------------------------------------------------
-    # Adaptive n_results
-    # ------------------------------------------------------------------
-
     def _n_results(self, query: str, intent: str) -> int:
         word_count = len(query.split())
         if intent in ("implement", "debug") or word_count > 15:
@@ -319,10 +300,6 @@ class DevAgent:
         if word_count < 8:
             return 3
         return 5
-
-    # ------------------------------------------------------------------
-    # Import context injection
-    # ------------------------------------------------------------------
 
     def _build_chunk_context(self, chunk: SearchResult) -> str:
         header = (
@@ -343,64 +320,44 @@ class DevAgent:
                 pass
         return f"{header}\n```{chunk.language}\n{prefix}{chunk.content.strip()}\n```"
 
-    # ------------------------------------------------------------------
-    # Main entry point
-    # ------------------------------------------------------------------
-
     def run(self, query: str, thread_id: str | None = None) -> str:
         intent = _detect_intent(query)
         logger.info("Intent: %s | Query: %s", intent, query[:80])
 
-        # 1. Rewrite query for better retrieval
         search_query = self._rewrite_query(query)
 
-        # 2. Retrieve relevant code chunks (adaptive count)
         n = self._n_results(query, intent)
         logger.info("Searching codebase (n=%d)...", n)
         raw_results = self.retriever.search(search_query, n_results=n)
 
-        # Filter low-relevance chunks, keep at least 1
-        MIN_SCORE = 0.3
-        code_results = [r for r in raw_results if r.score >= MIN_SCORE] or raw_results[:1]
+        code_results = [r for r in raw_results if r.score >= 0.3] or raw_results[:1]
         logger.info("Found %d relevant chunks (filtered from %d)", len(code_results), len(raw_results))
 
-        # 3. Fetch logs only for debug intent (and only if Grafana is enabled)
         logs_section = ""
-        if intent == "debug":
-            import config as _cfg
-            if not _cfg.GRAFANA_ENABLED:
-                logger.info("Grafana disabled — skipping log fetch (set GRAFANA_ENABLED=true in .env to enable)")
-            else:
-                service = _extract_service(query)
-                if service:
-                    logger.info("Fetching Grafana logs for: %s", service)
-                    raw_logs = self.grafana.fetch_logs(service, duration_minutes=15, limit=40)
-                    if raw_logs:
-                        logs_section = f"\n\n## Recent Logs ({service}, last 15 min)\n```\n{raw_logs}\n```"
+        if intent == "debug" and config.GRAFANA_ENABLED:
+            service = _extract_service(query)
+            if service:
+                logger.info("Fetching Grafana logs for: %s", service)
+                raw_logs = self.grafana.fetch_logs(service, duration_minutes=15, limit=40)
+                if raw_logs:
+                    logs_section = f"\n\n## Recent Logs ({service}, last 15 min)\n```\n{raw_logs}\n```"
 
-        # 4. Build code context with import headers injected
         code_section = "\n\n---\n\n".join(
             self._build_chunk_context(r) for r in code_results
         )
-
         context_block = f"## Relevant Code\n{code_section}{logs_section}"
 
-        # 5. Build message list (history + current)
         history = self._get_history(thread_id)
         messages = history + [
             {"role": "user", "content": f"{context_block}\n\n## Question\n{query}"}
         ]
 
-        # 6. Call Ollama with structured system prompt
-        logger.info("Calling Ollama (%s)...", intent)
         system_prompt = _SYSTEM_PROMPTS[intent]
         response = self.ollama.chat(messages=messages, system_prompt=system_prompt)
-        logger.info("Ollama responded (%d chars)", len(response))
+        logger.info("LLM responded (%d chars)", len(response))
 
-        # 7. Save to history
         self._save_history(thread_id, query, response)
 
-        # 8. Append source references
         refs = "\n".join(
             f"• `{r.file_path}:{r.start_line}` ({r.repo})"
             for r in code_results
@@ -410,10 +367,6 @@ class DevAgent:
             "review": "🔍", "general": "💬",
         }
         return f"{intent_label.get(intent, '')} _{intent.capitalize()} mode_\n\n{response}\n\n---\n_Sources:_\n{refs}"
-
-    # ------------------------------------------------------------------
-    # History helpers
-    # ------------------------------------------------------------------
 
     def _get_history(self, thread_id: str | None) -> list[dict]:
         if not thread_id:
@@ -429,3 +382,10 @@ class DevAgent:
         self._history[thread_id].append({"role": "assistant", "content": response})
         if len(self._history[thread_id]) > 20:
             self._history[thread_id] = self._history[thread_id][-20:]
+        try:
+            tmp = config.HISTORY_PATH + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(self._history, f)
+            os.replace(tmp, config.HISTORY_PATH)
+        except Exception as e:
+            logger.warning("Could not save thread history: %s", e)
