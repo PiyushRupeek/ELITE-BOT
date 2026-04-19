@@ -12,6 +12,11 @@ OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
 CHROMA_PATH = os.getenv("CHROMA_PATH", "./chroma_db")
 
+GROK_ENABLED = os.getenv("GROK_ENABLED", "false").lower() == "true"
+GROK_API_KEY = os.getenv("GROK_API_KEY", "")
+GROK_MODEL = os.getenv("GROK_MODEL", "grok-2-mini")
+GROK_BASE_URL = "https://api.groq.com/openai/v1"
+
 GRAFANA_ENABLED = os.getenv("GRAFANA_ENABLED", "false").lower() == "true"
 GRAFANA_URL = os.getenv("GRAFANA_URL", "http://localhost:3000")
 GRAFANA_API_KEY = os.getenv("GRAFANA_API_KEY", "")

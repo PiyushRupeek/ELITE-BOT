@@ -17,7 +17,7 @@ Response quality improvements:
 """
 import logging
 from rag.retriever import SearchResult
-from llm.ollama_client import OllamaClient
+from llm.llm_router import LLMRouter
 from rag.retriever import Retriever
 from tools.grafana_tool import GrafanaTool
 
@@ -241,7 +241,7 @@ Reply in the same thread to continue the conversation with full context."""
 
 class DevAgent:
     def __init__(self):
-        self.ollama = OllamaClient()
+        self.ollama = LLMRouter()
         self.retriever = Retriever()
         self.grafana = GrafanaTool()
         self._history: dict[str, list[dict]] = {}
